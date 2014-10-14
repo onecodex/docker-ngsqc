@@ -12,6 +12,7 @@ if __name__ == '__main__':
     parser.add_argument("reads", nargs="+", help="Input FASTQ, SAM, or BAM file(s)")
     parser.add_argument("output", help="Output path for QC file (json formatted)")
     parser.add_argument("--fastqc", default="fastqc", help="path to fastqc executable")
+    parser.add_argument("--report", action="store_true", default=False, help="Generate HTML report of QC values")
     args = parser.parse_args()
     
     outjson = {}
@@ -49,9 +50,15 @@ if __name__ == '__main__':
                     else:
                         vals = line.split("\t")
                         d["data"].append(dict(zip(cols, vals)))
-
+            
+            # save HTML report, if --report enabled
+            if args.report:
+                fastqc_report_filename = os.path.join(outdir, fastqc_data_dir, "fastqc_report.html")
+                fastqc_report_outfile = read_filename.replace(".fastq", ".qc_report.html")
+                subprocess.call(["cp", fastqc_report_filename, fastqc_report_outfile])
         # save data in outjson, indexed by filename
         outjson[os.path.basename(read_filename)] = out
+
     
     json.dump(outjson, open(args.output, 'w'), indent=4)
 
