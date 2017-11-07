@@ -7,6 +7,11 @@ import shutil
 import subprocess
 import sys
 
+def get_seq_len(value):
+    if '-' in value:
+        return value.split('-')
+    return value, value
+
 def parse_fastqc_summary(f):
     out = {
         'status': 'success',
@@ -28,7 +33,12 @@ def parse_fastqc_summary(f):
             stat_name = line.split('\t')[0].replace(' ', '_').lower()
             stat_name = stat_name.replace('%', 'percent_')
             stat = line.split('\t')[1]
-            out['basic_statistics'][stat_name] = stat
+            if stat_name == 'sequence_length':
+                minlen, maxlen = get_seq_len(stat)
+                out['basic_statistics']['min_sequence_length'] = minlen
+                out['basic_statistics']['max_sequence_length'] = maxlen
+            else:
+                out['basic_statistics'][stat_name] = stat
         elif line.startswith('##'):
             out['fastqc_version'] = line.split()[-1]
         elif line.startswith('>>Basic Statistics'):
@@ -73,12 +83,17 @@ if __name__ == '__main__':
     reads = os.path.abspath(args.reads)
     outdir = os.path.abspath(args.output)
     prefix, ext = os.path.splitext(os.path.basename(reads))
+
+    if not os.path.exists(reads):
+        sys.exit('File does not exist')
+
     if ext == '.gz':
         prefix = os.path.splitext(prefix)[0]
     out_prefix = prefix + '_fastqc_report'
 
-    if not os.path.exists(reads):
-        sys.exit('File does not exist')
+    results_json = 'results.json'
+    results_html = out_prefix + '.html'
+    results_txt = out_prefix + '.txt'
 
     try:
         subprocess.check_call([args.fastqc, reads, '-o', outdir, '--extract'])
@@ -87,24 +102,23 @@ if __name__ == '__main__':
             'status': 'error',
             'message': 'FastQC failed to finish successfully'
         }
-    else:
-        # get the fastqc data filename
-        fastqc_dirname = prefix + '_fastqc'
-        fastqc_data_filename = os.path.join(outdir, fastqc_dirname, 'fastqc_data.txt')
-        with open(fastqc_data_filename) as f:
-            fastqc_data = list(f)
+        sys.exit(1)
 
-        out = parse_fastqc_summary(fastqc_data)
-        if args.full_json:
-            out['results'] = parse_fastqc_details(fastqc_data)
+    # get the fastqc data filename
+    fastqc_dirname = prefix + '_fastqc'
+    fastqc_data_filename = os.path.join(outdir, fastqc_dirname, 'fastqc_data.txt')
+    fastqc_report_filename = os.path.join(outdir, prefix + '_fastqc.html')
 
-        # Move fastqc_data.txt from temp to output directory
-        shutil.move(fastqc_data_filename, os.path.join(outdir, out_prefix + '.txt'))
+    with open(fastqc_data_filename) as f:
+        fastqc_data = list(f)
 
-        # Save HTML report, if --report enabled
-        if args.report:
-            fastqc_report_src = os.path.join(outdir, fastqc_dirname, 'fastqc_report.html')
-            fastqc_report_dest = out_prefix + '.html'
-            shutil.move(fastqc_report_src, fastqc_report_dest)
+    out = parse_fastqc_summary(fastqc_data)
+    if args.full_json:
+        out['results'] = parse_fastqc_details(fastqc_data)
 
-    json.dump(out, open(os.path.join(outdir, out_prefix + '.json'), 'w'), indent=4)
+    # Move fastqc_data.txt from temp to output directory
+    shutil.move(fastqc_data_filename, os.path.join(outdir, results_txt))
+    shutil.move(fastqc_report_filename, os.path.join(outdir, results_html))
+
+    with open(os.path.join(outdir, results_json), 'w') as f:
+        json.dump(out, f, indent=4)
